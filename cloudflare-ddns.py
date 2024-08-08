@@ -15,8 +15,20 @@ import sys
 import threading
 import time
 import requests
+import socket
+from unittest.mock import patch
 
 CONFIG_PATH = os.environ.get('CONFIG_PATH', os.getcwd())
+
+orig_getaddrinfo = socket.getaddrinfo
+
+
+def getaddrinfo_ipv6(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host=host, port=port, family=socket.AF_INET6, type=type, proto=proto, flags=flags)
+
+
+def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host=host, port=port, family=socket.AF_INET, type=type, proto=proto, flags=flags)
 
 
 class GracefulExit:
@@ -58,19 +70,19 @@ def getIPs():
     global purgeUnknownRecords
     if ipv4_enabled:
         try:
-            a = requests.get(
-                "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
+            with patch('socket.getaddrinfo', side_effect=getaddrinfo_ipv4):
+                a = requests.get("https://www.cloudflare.com/cdn-cgi/trace").text.split("\n")
             a.pop()
             a = dict(s.split("=") for s in a)["ip"]
         except Exception:
             global shown_ipv4_warning
             if not shown_ipv4_warning:
                 shown_ipv4_warning = True
-                print("🧩 IPv4 not detected via 1.1.1.1, trying 1.0.0.1")
+                print("🧩 IPv4 not detected via www.cloudflare.com, trying 1.1.1.1")
             # Try secondary IP check
             try:
                 a = requests.get(
-                    "https://1.0.0.1/cdn-cgi/trace").text.split("\n")
+                    "https://1.1.1.1/cdn-cgi/trace").text.split("\n")
                 a.pop()
                 a = dict(s.split("=") for s in a)["ip"]
             except Exception:
@@ -82,18 +94,18 @@ def getIPs():
                     deleteEntries("A")
     if ipv6_enabled:
         try:
-            aaaa = requests.get(
-                "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
+            with patch('socket.getaddrinfo', side_effect=getaddrinfo_ipv6):
+                aaaa = requests.get("https://www.cloudflare.com/cdn-cgi/trace").text.split("\n")
             aaaa.pop()
             aaaa = dict(s.split("=") for s in aaaa)["ip"]
         except Exception:
             global shown_ipv6_warning
             if not shown_ipv6_warning:
                 shown_ipv6_warning = True
-                print("🧩 IPv6 not detected via 1.1.1.1, trying 1.0.0.1")
+                print("🧩 IPv6 not detected via www.cloudflare.com, trying 1.1.1.1")
             try:
                 aaaa = requests.get(
-                    "https://[2606:4700:4700::1001]/cdn-cgi/trace").text.split("\n")
+                    "https://[2606:4700:4700::1111]/cdn-cgi/trace").text.split("\n")
                 aaaa.pop()
                 aaaa = dict(s.split("=") for s in aaaa)["ip"]
             except Exception:
